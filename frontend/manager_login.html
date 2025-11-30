@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Manager Login — Small Business Marketing System</title>
+<style>
+  :root{--accent:#0b5cff;--muted:#64748b}
+  body{font-family:Arial,Helvetica,sans-serif;background:#f4f6f8;margin:0;color:#0b1726}
+  header{background:var(--accent);color:#fff;padding:1rem;text-align:center}
+  .container{max-width:400px;margin:3rem auto;padding:1.25rem;background:#fff;border-radius:10px;box-shadow:0 8px 24px rgba(12,30,60,0.08)}
+  label{display:block;font-weight:600;margin-top:.6rem}
+  input{width:100%;padding:.55rem;border-radius:7px;border:1px solid #e6eef7;margin-top:.35rem;box-sizing:border-box}
+  .btn{display:inline-block;padding:.55rem .9rem;border-radius:8px;border:0;background:var(--accent);color:#fff;cursor:pointer;font-weight:700;margin-top:.8rem}
+  .msg{margin-top:.6rem;font-weight:700}
+</style>
+</head>
+<body>
+<header><h1>Manager Login</h1></header>
+<main class="container" role="main">
+  <form id="loginForm" onsubmit="return login(event)" novalidate>
+    <label for="username">Username</label>
+    <input id="username" name="username" type="text" required autocomplete="username" />
+
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" required autocomplete="current-password" />
+
+    <button class="btn" type="submit">Sign in</button>
+    <div id="msg" class="msg" aria-live="polite"></div>
+  </form>
+</main>
+
+<script>
+const API_BASE = "http://localhost:3000";
+
+async function login(e){
+  e.preventDefault();
+  const u = document.getElementById('username').value.trim();
+  const p = document.getElementById('password').value;
+
+  const msg = document.getElementById('msg');
+  msg.textContent = '';
+
+  try {
+    const res = await fetch(API_BASE + '/api/admin/login', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ username: u, password: p })
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(()=>null);
+      throw new Error(err || 'Login failed');
+    }
+    const body = await res.json();
+    if (!body.token) throw new Error('No token received from server');
+
+    localStorage.setItem('sbms_admin_token', body.token);
+    window.location.href = 'admin.html';
+  } catch (err) {
+    console.error(err);
+    msg.style.color = 'crimson';
+    msg.textContent = err.message || 'Login failed';
+  }
+
+  return false;
+}
+
+
+if (localStorage.getItem('sbms_admin_token')) {
+  window.location.href = 'admin.html';
+}
+</script>
+</body>
+</html>

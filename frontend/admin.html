@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Admin — Small Business Marketing System</title>
+<style>
+  :root{--accent:#0b5cff;--muted:#64748b}
+  body{font-family:Arial,Helvetica,sans-serif;background:#f4f6f8;margin:0;color:#0b1726}
+  header{background:var(--accent);color:#fff;padding:1rem;text-align:center}
+  .container{max-width:1100px;margin:1.25rem auto;padding:1rem;background:#fff;border-radius:10px;box-shadow:0 8px 24px rgba(12,30,60,0.06)}
+  h1{margin:.25rem 0}
+  .topbar{display:flex;gap:1rem;align-items:center;justify-content:space-between;margin-bottom:.5rem}
+  .btn{padding:.45rem .75rem;border-radius:8px;border:0;background:var(--accent);color:#fff;cursor:pointer;font-weight:700}
+  .btn.secondary{background:var(--muted)}
+  table{width:100%;border-collapse:collapse;margin-top:.5rem}
+  th,td{padding:.5rem;border-bottom:1px solid #eef3fb;text-align:left}
+  .chart-wrapper{margin-top:1rem}
+  .small{font-size:.9rem;color:#475569}
+  .filters{display:flex;gap:.5rem;align-items:center}
+  .meta{margin-top:.5rem;color:#475569}
+  .actions{display:flex;gap:.5rem;align-items:center}
+  .sms-form{padding:0.8rem;border-radius:8px;border:1px solid #eef6ff;background:#fff;margin-bottom:1rem}
+  textarea{width:100%;min-height:90px;padding:.5rem;border-radius:7px;border:1px solid #e6eef7}
+  .danger{background:#ff4d4f}
+  .muted{color:#64748b}
+  .right{margin-left:auto}
+</style>
+</head>
+<body>
+<header><h1>Admin Dashboard</h1></header>
+
+<main class="container">
+  <div class="topbar">
+    <div>
+      <strong>Live submissions</strong>
+      <div class="small">Auto-refreshes every 5s — manager view</div>
+    </div>
+
+    <div class="actions">
+      <button class="btn" onclick="loadCustomers()">Refresh</button>
+      <a href="index.html" style="text-decoration:none;margin-left:.5rem"><button class="btn secondary">Open Signup</button></a>
+      <button class="btn secondary" onclick="logout()" title="Sign out" style="margin-left:8px">Logout</button>
+    </div>
+  </div>
+
+  <section aria-label="metrics">
+    <div style="display:flex;gap:1rem;flex-wrap:wrap">
+      <div style="padding:.8rem;border-radius:8px;border:1px solid #eef6ff;background:#fff;min-width:160px">
+        <div class="small">Total Signups</div>
+        <div id="totalSignups" style="font-size:1.4rem;font-weight:700;margin-top:.35rem">0</div>
+      </div>
+      <div style="padding:.8rem;border-radius:8px;border:1px solid #eef6ff;background:#fff;min-width:160px">
+        <div class="small">Opted-in for SMS</div>
+        <div id="optedInCount" style="font-size:1.4rem;font-weight:700;margin-top:.35rem">0</div>
+      </div>
+      <div style="padding:.8rem;border-radius:8px;border:1px solid #eef6ff;background:#fff;min-width:240px;display:flex;align-items:center">
+        <div style="flex:1">
+          <div class="small">Selected</div>
+          <div id="selectedCount" style="font-size:1.2rem;font-weight:700;margin-top:.35rem">0</div>
+        </div>
+        <div style="margin-left:12px">
+          <button class="btn danger" onclick="deleteSelected()" id="deleteSelectedBtn">Delete selected</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sms-form" aria-label="Send text message">
+    <h3>Send SMS</h3>
+    <div class="small muted">Who is getting the message?</div>
+
+    <label style="margin-top:.6rem">Recipients</label>
+    <select id="recipientMode" onchange="onRecipientModeChange()">
+      <option value="all_optin">All opted-in</option>
+      <option value="interest">By interest</option>
+      <option value="selected">Selected people (table)</option>
+      <option value="manual">Manual numbers (comma/newline separated)</option>
+    </select>
+
+    <div id="interestRow" style="display:none;margin-top:.5rem;">
+      <label>Interest</label>
+      <select id="interestSelect"><option value="">-- choose interest --</option></select>
+    </div>
+
+    <div id="manualRow" style="display:none;margin-top:.5rem;">
+      <label>Numbers (one per line or comma separated)</label>
+      <textarea id="manualNumbers" placeholder="e.g. +15551234567"></textarea>
+    </div>
+
+    <label style="margin-top:.6rem">Message</label>
+    <textarea id="smsMessage" placeholder="Write your message here..."></textarea>
+
+    <div style="display:flex;gap:.5rem;margin-top:.6rem;align-items:center">
+      <button class="btn" onclick="sendSmsFromForm()">Send SMS</button>
+      <div class="small muted" id="smsStatus" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <section style="margin-top:1rem">
+    <h3>Customer Table</h3>
+    <table id="customerTable" aria-label="Customers">
+      <thead>
+        <tr>
+          <th><input type="checkbox" id="selectAll" onchange="toggleSelectAll(this)"></th>
+          <th>Name</th><th>Email</th><th>Phone</th><th>Interests</th><th>Opt-In</th><th>Submitted</th><th>Actions</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section class="chart-wrapper">
+    <h3>Signups Per Day</h3>
+    <canvas id="signupsChart" style="max-width:100%;"></canvas>
+    <div class="meta">Bars show signups grouped by day.</div>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+const API_BASE = "http://localhost:3000";
+const token = localStorage.getItem('sbms_admin_token') || null;
+
+// BASIC auth redirect: require login token
+if (!token) {
+  window.location.href = 'manager_login.html';
+}
+
+// Escape helper
+function escapeHtml(s=''){ return String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[m])); }
+
+let customersCache = [];
+let signupsChart = null;
+
+function authHeaders() {
+  const headers = {'Content-Type':'application/json'};
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  return headers;
+}
+
+async function loadCustomers(){
+  try {
+    const r = await fetch(API_BASE + "/api/customers", { headers: authHeaders(), cache: "no-store" });
+    if (!r.ok) throw new Error('Failed to load customers');
+    const customers = await r.json();
+    customersCache = customers;
+    renderTable(customers);
+    renderMetrics(customers);
+    populateInterestSelect(customers);
+    renderChart(customers);
+  } catch(err){
+    console.error("Error loading customers:", err);
+    document.getElementById('smsStatus').style.color='crimson';
+    document.getElementById('smsStatus').textContent = 'Failed to load customers';
+  }
+}
+
+function renderTable(customers){
+  const tbody = document.querySelector('#customerTable tbody');
+  tbody.innerHTML = '';
+  customers.forEach((c, idx) => {
+    const id = escapeHtml(c.id || c._id || idx);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td style="width:36px"><input type="checkbox" data-id="${id}" onchange="onRowSelectChange()"></td>
+      <td>${escapeHtml(c.name||'')}</td>
+      <td>${escapeHtml(c.email||'')}</td>
+      <td>${escapeHtml(c.phone||'')}</td>
+      <td>${escapeHtml(c.interests||'')}</td>
+      <td>${c.optin? 'Yes' : 'No'}</td>
+      <td>${new Date(c.date||Date.now()).toLocaleString()}</td>
+      <td><button class="btn secondary" onclick="deleteCustomer('${id}', this)">Delete</button></td>`;
+    tbody.appendChild(tr);
+  });
+  updateSelectedCount();
+}
+
+function renderMetrics(customers){
+  document.getElementById('totalSignups').textContent = customers.length;
+  document.getElementById('optedInCount').textContent = customers.filter(c=>c.optin).length;
+}
+
+function populateInterestSelect(customers){
+  const set = new Set(customers.map(c => c.interests).filter(Boolean));
+  const sel = document.getElementById('interestSelect');
+  sel.innerHTML = '<option value="">-- choose interest --</option>';
+  Array.from(set).sort().forEach(i => {
+    const opt = document.createElement('option');
+    opt.value = i; opt.textContent = i;
+    sel.appendChild(opt);
+  });
+}
+
+// Chart rendering with Chart.js
+function renderChart(customers){
+  const counts = {};
+  customers.forEach(c => {
+    const day = (typeof c.date === 'string' ? c.date.split('T')[0] : new Date(c.date||Date.now()).toISOString().split('T')[0]);
+    counts[day] = (counts[day] || 0) + 1;
+  });
+  const labels = Object.keys(counts).sort();
+  const data = labels.map(l => counts[l]);
+
+  const ctx = document.getElementById('signupsChart').getContext('2d');
+  if (signupsChart) {
+    signupsChart.data.labels = labels;
+    signupsChart.data.datasets[0].data = data;
+    signupsChart.update();
+  } else {
+    signupsChart = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets: [{ label: 'Signups', data, /* color left to backend or default */ }] },
+      options: { responsive:true, plugins: { legend: { display:false } }}
+    });
+  }
+}
+//selection/checkmarks
+function toggleSelectAll(chk){
+  const boxes = document.querySelectorAll('#customerTable tbody input[type="checkbox"]');
+  boxes.forEach(b => b.checked = chk.checked);
+  updateSelectedCount();
+}
+function onRowSelectChange(){ updateSelectedCount(); }
+function getSelectedIds(){
+  const boxes = [...document.querySelectorAll('#customerTable tbody input[type="checkbox"]')];
+  return boxes.filter(b => b.checked).map(b => b.getAttribute('data-id'));
+}
+function updateSelectedCount(){
+  const n = getSelectedIds().length;
+  document.getElementById('selectedCount').textContent = n;
+  document.getElementById('deleteSelectedBtn').style.display = n ? 'inline-block' : 'none';
+}
+
+// deleting functio nfor customers
+async function deleteCustomer(id, buttonEl){
+  if (!confirm('Delete this customer? This is permanent.')) return;
+  buttonEl.disabled = true;
+  try {
+    const res = await fetch(API_BASE + '/api/customers/' + encodeURIComponent(id), { method: 'DELETE', headers: authHeaders() });
+    if (!res.ok) throw new Error('Failed to delete');
+    customersCache = customersCache.filter(c => (c.id || c._id || String(c.id)) != id);
+    loadCustomers();
+  } catch (err) {
+    console.error(err);
+    alert('Delete failed: ' + (err.message || 'server error'));
+  } finally {
+    buttonEl.disabled = false;
+  }
+}
+
+async function deleteSelected(){
+  const ids = getSelectedIds();
+  if (!ids.length) return alert('No rows selected');
+  if (!confirm(`Delete ${ids.length} selected customers? This cannot be undone.`)) return;
+  try {
+    const res = await fetch(API_BASE + '/api/customers/bulk-delete', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ ids })
+    });
+    if (!res.ok) throw new Error('Bulk delete failed');
+    loadCustomers();
+  } catch(err){
+    console.error(err);
+    alert('Bulk delete failed: ' + (err.message || 'server error'));
+  }
+}
+
+// sms and twilio eventually
+function onRecipientModeChange(){
+  const mode = document.getElementById('recipientMode').value;
+  document.getElementById('interestRow').style.display = mode === 'interest' ? 'block' : 'none';
+  document.getElementById('manualRow').style.display = mode === 'manual' ? 'block' : 'none';
+}
+
+async function sendSmsFromForm(){
+  const mode = document.getElementById('recipientMode').value;
+  const message = document.getElementById('smsMessage').value.trim();
+  const status = document.getElementById('smsStatus');
+  status.textContent = '';
+  if (!message) { status.style.color='crimson'; status.textContent = 'Message cannot be empty.'; return; }
+
+  let payload = { message, mode };
+
+  if (mode === 'interest') {
+    const interest = document.getElementById('interestSelect').value;
+    if (!interest) { status.style.color='crimson'; status.textContent = 'Select an interest.'; return; }
+    payload.interest = interest;
+  } else if (mode === 'selected') {
+    const ids = getSelectedIds();
+    if (!ids.length) { status.style.color='crimson'; status.textContent = 'No recipients selected.'; return; }
+    payload.ids = ids;
+  } else if (mode === 'manual') {
+    const raw = document.getElementById('manualNumbers').value.trim();
+    if (!raw) { status.style.color='crimson'; status.textContent = 'Enter at least one phone number.'; return; }
+    const numbers = raw.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean);
+    payload.numbers = numbers;
+  }
+
+  status.style.color='black';
+  status.textContent = 'Sending...';
+  try {
+    const res = await fetch(API_BASE + '/api/send-sms', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(()=>null);
+      throw new Error(txt || 'Server error sending SMS');
+    }
+    status.style.color='green';
+    status.textContent = 'Sent successfully.';
+  } catch (err) {
+    console.error('SMS send failed', err);
+    status.style.color='crimson';
+    status.textContent = 'Failed to send: ' + (err.message || 'server error');
+  }
+}
+
+function logout(){
+  localStorage.removeItem('sbms_admin_token');
+  window.location.href = 'manager_login.html';
+}
+
+//force load and refresh
+loadCustomers();
+setInterval(loadCustomers, 5000);
+</script>
+</body>
+</html>
